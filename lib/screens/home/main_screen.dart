@@ -5,6 +5,8 @@ import '../marketplace/marketplace_screen.dart';
 import '../accommodation/accommodation_screen.dart';
 import '../voting/voting_screen.dart';
 import '../more/more_screen.dart';
+import '../message/messages_screen.dart';
+import '../more/academia_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -19,8 +21,8 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const MarketplaceScreen(),
-    const AccommodationScreen(),
-    const VotingScreen(),
+    const AcademiaScreen(),
+    const MessagesScreen(),
     const MoreScreen(),
   ];
 
@@ -64,14 +66,14 @@ class _MainScreenState extends State<MainScreen> {
               label: 'Market',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.home_work_outlined),
-              activeIcon: Icon(Icons.home_work),
-              label: 'Housing',
+              icon: Icon(Icons.school_outlined),
+              activeIcon: Icon(Icons.school),
+              label: 'Academia',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.how_to_vote_outlined),
-              activeIcon: Icon(Icons.how_to_vote),
-              label: 'Voting',
+              icon: Icon(Icons.message_outlined),
+              activeIcon: Icon(Icons.message),
+              label: 'Message',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.menu),

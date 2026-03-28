@@ -11,10 +11,11 @@ class PostService {
   final AuthService _authService = AuthService();
   final Uuid _uuid = const Uuid();
 
+  // Bunny.net Configuration - add at top of StorageService class
+
   // Collection references
-  CollectionReference get _postsCollection => 
-      _firestore.collection('posts');
-  CollectionReference get _commentsCollection => 
+  CollectionReference get _postsCollection => _firestore.collection('posts');
+  CollectionReference get _commentsCollection =>
       _firestore.collection('comments');
 
   // Create a new post
@@ -22,6 +23,8 @@ class PostService {
     required String content,
     List<String> mediaUrls = const [],
     List<String> mediaTypes = const [],
+    String? audioUrl,
+    List<String> tags = const [],
     String backgroundColor = '#FFFFFF',
     bool isAnonymous = false,
     bool isVideoReel = false,
@@ -41,6 +44,8 @@ class PostService {
         content: content,
         mediaUrls: mediaUrls,
         mediaTypes: mediaTypes,
+        audioUrl: audioUrl,
+        tags: tags,
         backgroundColor: backgroundColor,
         isAnonymous: isAnonymous,
         createdAt: DateTime.now(),
@@ -69,7 +74,7 @@ class PostService {
     try {
       final postRef = _postsCollection.doc(postId);
       final postDoc = await postRef.get();
-      
+
       if (!postDoc.exists) return;
 
       final post = PostModel.fromMap(postDoc.data() as Map<String, dynamic>);
@@ -133,7 +138,8 @@ class PostService {
         .where('postId', isEqualTo: postId)
         .snapshots()
         .map((snapshot) => snapshot.docs
-            .map((doc) => CommentModel.fromMap(doc.data() as Map<String, dynamic>))
+            .map((doc) =>
+                CommentModel.fromMap(doc.data() as Map<String, dynamic>))
             .toList());
   }
 
@@ -144,7 +150,8 @@ class PostService {
         .orderBy('createdAt', descending: false)
         .snapshots()
         .map((snapshot) => snapshot.docs
-            .map((doc) => CommentModel.fromMap(doc.data() as Map<String, dynamic>))
+            .map((doc) =>
+                CommentModel.fromMap(doc.data() as Map<String, dynamic>))
             .toList());
   }
 
@@ -153,10 +160,11 @@ class PostService {
     try {
       final commentRef = _commentsCollection.doc(commentId);
       final commentDoc = await commentRef.get();
-      
+
       if (!commentDoc.exists) return;
 
-      final comment = CommentModel.fromMap(commentDoc.data() as Map<String, dynamic>);
+      final comment =
+          CommentModel.fromMap(commentDoc.data() as Map<String, dynamic>);
       final newLikes = List<String>.from(comment.likes);
 
       if (newLikes.contains(userId)) {
@@ -195,9 +203,8 @@ class PostService {
       await _postsCollection.doc(postId).delete();
 
       // Delete all comments for this post
-      final commentsSnapshot = await _commentsCollection
-          .where('postId', isEqualTo: postId)
-          .get();
+      final commentsSnapshot =
+          await _commentsCollection.where('postId', isEqualTo: postId).get();
 
       for (final doc in commentsSnapshot.docs) {
         await doc.reference.delete();

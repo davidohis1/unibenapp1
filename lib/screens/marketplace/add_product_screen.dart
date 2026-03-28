@@ -1,12 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 import '../../constants/app_constants.dart';
-import '../../services/storage_service.dart';
+import '../../services/image_upload_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/product_model.dart';
 import '../../models/service_model.dart';
@@ -21,48 +19,31 @@ class AddProductScreen extends StatefulWidget {
 
 class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
+  final _titleController       = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _whatsappController = TextEditingController();
-  final _locationController = TextEditingController();
+  final _priceController       = TextEditingController();
+  final _phoneController       = TextEditingController();
+  final _whatsappController    = TextEditingController();
+  final _locationController    = TextEditingController();
 
-  final StorageService _storageService = StorageService();
-  final AuthService _authService = AuthService();
-  final ImagePicker _picker = ImagePicker();
+  final ImageUploadService _uploadService = ImageUploadService();
+  final AuthService        _authService   = AuthService();
+  final ImagePicker        _picker        = ImagePicker();
 
-  String _selectedCategory = 'Electronics';
-  String _selectedCondition = 'Good';
-  List<File> _selectedImages = [];
-  List<File> _selectedVideos = [];
-  bool _isLoading = false;
+  String       _selectedCategory = 'Electronics';
+  String       _selectedCondition = 'Good';
+  List<XFile>  _selectedImages   = [];   // ← XFile, NOT dart:io File
+  bool         _isLoading        = false;
+  double       _uploadProgress   = 0.0;
 
-  final List<String> _productCategories = [
-    'Electronics',
-    'Books',
-    'Clothing',
-    'Furniture',
-    'Sports',
-    'Other'
-  ];
-
-  final List<String> _serviceCategories = [
-    'Tutoring',
-    'Assignment Help',
-    'Typing',
-    'Graphic Design',
-    'Programming',
-    'Other'
-  ];
-
-  final List<String> _conditions = ['New', 'Like New', 'Good', 'Fair'];
+  final List<String> _productCategories  = ['Electronics','Books','Clothing','Furniture','Sports','Other'];
+  final List<String> _serviceCategories  = ['Tutoring','Assignment Help','Typing','Graphic Design','Programming','Other'];
+  final List<String> _conditions         = ['New','Like New','Good','Fair'];
 
   @override
   void initState() {
     super.initState();
-    _selectedCategory =
-        widget.isService ? _serviceCategories[0] : _productCategories[0];
+    _selectedCategory = widget.isService ? _serviceCategories[0] : _productCategories[0];
   }
 
   @override
@@ -76,149 +57,130 @@ class _AddProductScreenState extends State<AddProductScreen> {
     super.dispose();
   }
 
+  // ── Pick images ──────────────────────────────────────────────────────────────
   Future<void> _pickImages() async {
-    final List<XFile> images = await _picker.pickMultiImage();
-    if (images.isNotEmpty) {
+    final List<XFile> picked = await _picker.pickMultiImage();
+    if (picked.isNotEmpty) {
       setState(() {
-        _selectedImages.addAll(images.map((img) => File(img.path)));
+        _selectedImages.addAll(picked);
+        if (_selectedImages.length > 10) {
+          _selectedImages = _selectedImages.sublist(0, 10);
+        }
       });
     }
   }
 
-  Future<void> _pickVideos() async {
-    final XFile? video = await _picker.pickVideo(source: ImageSource.gallery);
-    if (video != null) {
-      setState(() {
-        _selectedVideos.add(File(video.path));
-      });
-    }
-  }
+  void _removeImage(int index) => setState(() => _selectedImages.removeAt(index));
 
-  void _removeImage(int index) {
-    setState(() {
-      _selectedImages.removeAt(index);
-    });
-  }
-
-  void _removeVideo(int index) {
-    setState(() {
-      _selectedVideos.removeAt(index);
-    });
-  }
-
-  Future<void> _submitProduct() async {
+  // ── Submit ───────────────────────────────────────────────────────────────────
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedImages.isEmpty && !widget.isService) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one image')),
-      );
+    if (_selectedImages.isEmpty) {
+      _showError('Please add at least one image.');
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _uploadProgress = 0.1; });
 
     try {
       final user = _authService.currentUser;
-      if (user == null) throw Exception('User not logged in');
+      if (user == null) throw Exception('Not logged in.');
 
       final userData = await _authService.getUserData(user.uid);
-      if (userData == null) throw Exception('User data not found');
+      if (userData == null) throw Exception('User profile not found.');
 
-      // Upload images
-      List<String> imageUrls = [];
-      if (_selectedImages.isNotEmpty) {
-        imageUrls = await _storageService.uploadImages(
-          _selectedImages,
-          widget.isService ? 'services' : 'products',
-        );
-      }
+      setState(() => _uploadProgress = 0.3);
 
-      // Upload videos
-      List<String> videoUrls = [];
-      if (_selectedVideos.isNotEmpty) {
-        videoUrls = await _storageService.uploadVideos(
-          _selectedVideos,
-          widget.isService ? 'services' : 'products',
-        );
-      }
+      // ── Upload images to PHP backend ────────────────────────────────────────
+      final folder    = widget.isService ? 'services' : 'products';
+      final imageUrls = await _uploadService.uploadXFiles(_selectedImages, folder);
 
+      setState(() => _uploadProgress = 0.75);
+
+      // ── Save to Firestore ───────────────────────────────────────────────────
       final id = const Uuid().v4();
 
       if (widget.isService) {
-        // Create service
         final service = ServiceModel(
-          id: id,
-          sellerId: user.uid,
-          sellerName: userData.username,
+          id:             id,
+          sellerId:       user.uid,
+          sellerName:     userData.username,
           sellerImageUrl: userData.profileImageUrl ?? '',
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim(),
-          price: double.parse(_priceController.text),
-          category: _selectedCategory,
-          phoneNumber: _phoneController.text.trim(),
+          title:          _titleController.text.trim(),
+          description:    _descriptionController.text.trim(),
+          price:          double.parse(_priceController.text.trim()),
+          category:       _selectedCategory,
+          phoneNumber:    _phoneController.text.trim(),
           whatsappNumber: _whatsappController.text.trim(),
-          location: _locationController.text.trim(),
-          imageUrls: imageUrls,
-          createdAt: DateTime.now(),
+          location:       _locationController.text.trim(),
+          imageUrls:      imageUrls,
+          createdAt:      DateTime.now(),
         );
-
         await FirebaseFirestore.instance
             .collection(AppConstants.servicesCollection)
             .doc(id)
             .set(service.toMap());
       } else {
-        // Create product
         final product = ProductModel(
-          id: id,
-          sellerId: user.uid,
-          sellerName: userData.username,
+          id:             id,
+          sellerId:       user.uid,
+          sellerName:     userData.username,
           sellerImageUrl: userData.profileImageUrl ?? '',
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim(),
-          price: double.parse(_priceController.text),
-          category: _selectedCategory,
-          imageUrls: imageUrls,
-          videoUrls: videoUrls,
-          condition: _selectedCondition.toLowerCase().replaceAll(' ', '-'),
-          phoneNumber: _phoneController.text.trim(),
+          title:          _titleController.text.trim(),
+          description:    _descriptionController.text.trim(),
+          price:          double.parse(_priceController.text.trim()),
+          category:       _selectedCategory,
+          imageUrls:      imageUrls,
+          videoUrls:      [],
+          condition:      _selectedCondition.toLowerCase().replaceAll(' ', '-'),
+          phoneNumber:    _phoneController.text.trim(),
           whatsappNumber: _whatsappController.text.trim(),
-          location: _locationController.text.trim(),
-          createdAt: DateTime.now(),
+          location:       _locationController.text.trim(),
+          createdAt:      DateTime.now(),
         );
-
         await FirebaseFirestore.instance
             .collection(AppConstants.productsCollection)
             .doc(id)
             .set(product.toMap());
       }
 
+      setState(() => _uploadProgress = 1.0);
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                '${widget.isService ? "Service" : "Product"} added successfully!'),
-            backgroundColor: AppColors.successGreen,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${widget.isService ? "Service" : "Product"} posted successfully!'),
+          backgroundColor: AppColors.successGreen,
+        ));
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
+      if (mounted) _showError(e.toString());
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() { _isLoading = false; _uploadProgress = 0.0; });
     }
   }
 
+  // ── Full-text error dialog ───────────────────────────────────────────────────
+  void _showError(String message) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Error'),
+        content: SingleChildScrollView(
+          child: SelectableText(message, style: const TextStyle(fontSize: 13)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -236,115 +198,72 @@ class _AddProductScreenState extends State<AddProductScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Images Section
-            _buildMediaSection(),
-            const SizedBox(height: 24),
 
-            // Title
-            _buildTextField(
-              controller: _titleController,
-              label: 'Title',
-              hint: widget.isService
-                  ? 'e.g., Math Tutoring'
-                  : 'e.g., iPhone 12 Pro',
-              validator: (v) => v!.isEmpty ? 'Required' : null,
-            ),
-            const SizedBox(height: 16),
-
-            // Category
-            _buildDropdown(
-              label: 'Category',
-              value: _selectedCategory,
-              items: widget.isService ? _serviceCategories : _productCategories,
-              onChanged: (v) => setState(() => _selectedCategory = v!),
-            ),
-            const SizedBox(height: 16),
-
-            // Condition (Products only)
-            if (!widget.isService) ...[
-              _buildDropdown(
-                label: 'Condition',
-                value: _selectedCondition,
-                items: _conditions,
-                onChanged: (v) => setState(() => _selectedCondition = v!),
+            // Progress indicator
+            if (_isLoading) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Uploading… ${(_uploadProgress * 100).toInt()}%',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14, fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: _uploadProgress,
+                      backgroundColor: AppColors.lightGrey,
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primaryPurple),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
             ],
 
-            // Price
-            _buildTextField(
-              controller: _priceController,
-              label: 'Price (\$)',
-              hint: '0.00',
-              keyboardType: TextInputType.number,
-              validator: (v) {
-                if (v!.isEmpty) return 'Required';
-                if (double.tryParse(v) == null) return 'Invalid price';
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
+            _buildImageSection(),
+            const SizedBox(height: 24),
 
-            // Description
-            _buildTextField(
-              controller: _descriptionController,
-              label: 'Description',
-              hint: 'Describe your ${widget.isService ? "service" : "product"}',
-              maxLines: 4,
-              validator: (v) => v!.isEmpty ? 'Required' : null,
-            ),
+            _field(controller: _titleController,       label: 'Title',          hint: widget.isService ? 'e.g., Math Tutoring' : 'e.g., iPhone 12 Pro'),
             const SizedBox(height: 16),
-
-            // Location
-            _buildTextField(
-              controller: _locationController,
-              label: 'Location',
-              hint: 'e.g., Campus Area, Hostel Name',
-              validator: (v) => v!.isEmpty ? 'Required' : null,
-            ),
+            _dropdown(label: 'Category', value: _selectedCategory, items: widget.isService ? _serviceCategories : _productCategories, onChanged: (v) => setState(() => _selectedCategory = v!)),
             const SizedBox(height: 16),
-
-            // Phone Number
-            _buildTextField(
-              controller: _phoneController,
-              label: 'Phone Number',
-              hint: '08012345678',
-              keyboardType: TextInputType.phone,
-              validator: (v) => v!.isEmpty ? 'Required' : null,
-            ),
+            if (!widget.isService) ...[
+              _dropdown(label: 'Condition', value: _selectedCondition, items: _conditions, onChanged: (v) => setState(() => _selectedCondition = v!)),
+              const SizedBox(height: 16),
+            ],
+            _field(controller: _priceController, label: 'Price (₦)', hint: '0.00', keyboard: TextInputType.number,
+              validator: (v) { if (v!.isEmpty) return 'Required'; if (double.tryParse(v) == null) return 'Must be a number'; return null; }),
             const SizedBox(height: 16),
-
-            // WhatsApp Number
-            _buildTextField(
-              controller: _whatsappController,
-              label: 'WhatsApp Number',
-              hint: '08012345678',
-              keyboardType: TextInputType.phone,
-              validator: (v) => v!.isEmpty ? 'Required' : null,
-            ),
+            _field(controller: _descriptionController, label: 'Description', hint: 'Describe your ${widget.isService ? "service" : "product"}', maxLines: 4),
+            const SizedBox(height: 16),
+            _field(controller: _locationController,    label: 'Location',    hint: 'e.g., Campus Area, Hostel Name'),
+            const SizedBox(height: 16),
+            _field(controller: _phoneController,       label: 'Phone Number',    hint: '08012345678', keyboard: TextInputType.phone),
+            const SizedBox(height: 16),
+            _field(controller: _whatsappController,    label: 'WhatsApp Number', hint: '08012345678', keyboard: TextInputType.phone),
             const SizedBox(height: 32),
 
-            // Submit Button
             SizedBox(
               height: 56,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _submitProduct,
+                onPressed: _isLoading ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryPurple,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator(color: AppColors.white)
-                    : Text(
-                        'Submit',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.white,
-                        ),
-                      ),
+                    ? const SizedBox(
+                        width: 24, height: 24,
+                        child: CircularProgressIndicator(color: AppColors.white, strokeWidth: 2),
+                      )
+                    : Text('Submit', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.white)),
               ),
             ),
             const SizedBox(height: 32),
@@ -354,33 +273,36 @@ class _AddProductScreenState extends State<AddProductScreen> {
     );
   }
 
-  Widget _buildMediaSection() {
+  // ── Image picker section ─────────────────────────────────────────────────────
+  Widget _buildImageSection() {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Images', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600)),
+              Text('${_selectedImages.length}/10', style: GoogleFonts.poppins(fontSize: 12, color: AppColors.grey)),
+            ],
+          ),
+          const SizedBox(height: 4),
           Text(
-            'Media',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+            'Images are auto-resized and compressed to ~300 KB on the server.',
+            style: GoogleFonts.poppins(fontSize: 11, color: AppColors.grey),
           ),
           const SizedBox(height: 12),
 
-          // Images
+          // Thumbnails
           if (_selectedImages.isNotEmpty)
             SizedBox(
               height: 100,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: _selectedImages.length,
-                itemBuilder: (context, index) {
+                itemBuilder: (context, i) {
                   return Stack(
                     children: [
                       Container(
@@ -388,28 +310,30 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         width: 100,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          image: DecorationImage(
-                            image: FileImage(_selectedImages[index]),
+                          color: AppColors.lightGrey,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            _selectedImages[i].path,
                             fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Image.asset(
+                              _selectedImages[i].path,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.image, color: AppColors.grey),
+                            ),
                           ),
                         ),
                       ),
                       Positioned(
-                        top: 4,
-                        right: 12,
+                        top: 4, right: 12,
                         child: GestureDetector(
-                          onTap: () => _removeImage(index),
+                          onTap: () => _removeImage(i),
                           child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: AppColors.errorRed,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: AppColors.white,
-                            ),
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(color: AppColors.errorRed, shape: BoxShape.circle),
+                            child: const Icon(Icons.close, size: 14, color: AppColors.white),
                           ),
                         ),
                       ),
@@ -421,108 +345,59 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
           const SizedBox(height: 12),
 
-          // Add buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _pickImages,
-                  icon: const Icon(Icons.image),
-                  label: Text(
-                    'Add Images',
-                    style: GoogleFonts.poppins(fontSize: 14),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primaryPurple,
-                    side: const BorderSide(color: AppColors.primaryPurple),
-                  ),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _selectedImages.length < 10 ? _pickImages : null,
+              icon: const Icon(Icons.add_photo_alternate),
+              label: Text('Add Images (max 10)', style: GoogleFonts.poppins(fontSize: 14)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primaryPurple,
+                side: const BorderSide(color: AppColors.primaryPurple),
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              if (!widget.isService) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickVideos,
-                    icon: const Icon(Icons.videocam),
-                    label: Text(
-                      'Add Video',
-                      style: GoogleFonts.poppins(fontSize: 14),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primaryPurple,
-                      side: const BorderSide(color: AppColors.primaryPurple),
-                    ),
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
-
-          // Videos
-          if (_selectedVideos.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ...List.generate(_selectedVideos.length, (index) {
-              return ListTile(
-                leading:
-                    const Icon(Icons.videocam, color: AppColors.primaryPurple),
-                title: Text('Video ${index + 1}',
-                    style: GoogleFonts.poppins(fontSize: 14)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: AppColors.errorRed),
-                  onPressed: () => _removeVideo(index),
-                ),
-              );
-            }),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildTextField({
+  // ── Reusable text field ──────────────────────────────────────────────────────
+  Widget _field({
     required TextEditingController controller,
     required String label,
     required String hint,
     int maxLines = 1,
-    TextInputType? keyboardType,
+    TextInputType keyboard = TextInputType.text,
     String? Function(String?)? validator,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(label, style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
           maxLines: maxLines,
-          keyboardType: keyboardType,
-          validator: validator,
+          keyboardType: keyboard,
+          validator: validator ?? (v) => v!.isEmpty ? 'Required' : null,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: GoogleFonts.poppins(color: AppColors.grey),
             filled: true,
             fillColor: AppColors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.borderColor),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.borderColor),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderColor)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderColor)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primaryPurple, width: 2)),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDropdown({
+  // ── Reusable dropdown ────────────────────────────────────────────────────────
+  Widget _dropdown({
     required String label,
     required String value,
     required List<String> items,
@@ -531,31 +406,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(label, style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           value: value,
-          items: items.map((item) {
-            return DropdownMenuItem(value: item, child: Text(item));
-          }).toList(),
+          items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
           onChanged: onChanged,
           decoration: InputDecoration(
             filled: true,
             fillColor: AppColors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.borderColor),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.borderColor),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderColor)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderColor)),
           ),
         ),
       ],

@@ -5,6 +5,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../constants/app_constants.dart';
 import '../../models/voting_model.dart';
+import '../../models/user_model.dart';
+import '../../services/auth_service.dart';
 import 'add_voting_screen.dart';
 import 'voting_detail_screen.dart';
 
@@ -15,14 +17,18 @@ class VotingScreen extends StatefulWidget {
   State<VotingScreen> createState() => _VotingScreenState();
 }
 
-class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderStateMixin {
+class _VotingScreenState extends State<VotingScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _searchController = TextEditingController();
+  final AuthService _authService = AuthService();
+  UserModel? _currentUser;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadCurrentUser();
   }
 
   @override
@@ -32,12 +38,23 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
+  Future<void> _loadCurrentUser() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userData = await _authService.getUserData(user.uid);
+      setState(() {
+        _currentUser = userData;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.lightGrey,
       appBar: AppBar(
-        title: Text('Voting', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text('Voting',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.primaryPurple,
         foregroundColor: AppColors.white,
         bottom: TabBar(
@@ -59,7 +76,8 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: 'Search voting...',
-                hintStyle: GoogleFonts.poppins(fontSize: 14, color: AppColors.grey),
+                hintStyle:
+                    GoogleFonts.poppins(fontSize: 14, color: AppColors.grey),
                 prefixIcon: const Icon(Icons.search, color: AppColors.grey),
                 filled: true,
                 fillColor: AppColors.lightGrey,
@@ -87,11 +105,12 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const AddVotingScreen()),
-          );
+          ).then((_) => _loadCurrentUser()); // Refresh user data
         },
         backgroundColor: AppColors.primaryPurple,
         icon: const Icon(Icons.add, color: AppColors.white),
-        label: Text('Create Voting', style: GoogleFonts.poppins(color: AppColors.white)),
+        label: Text('Create Voting',
+            style: GoogleFonts.poppins(color: AppColors.white)),
       ),
     );
   }
@@ -101,12 +120,21 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
       stream: FirebaseFirestore.instance
           .collection(AppConstants.votingCollection)
           .where('isActive', isEqualTo: isActive)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+          .snapshots(), // Remove orderBy temporarily to test
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
             child: CircularProgressIndicator(color: AppColors.primaryPurple),
+          );
+        }
+
+        if (snapshot.hasError) {
+          print('Error: ${snapshot.error}');
+          return Center(
+            child: Text(
+              'Error loading votings',
+              style: GoogleFonts.poppins(color: AppColors.errorRed),
+            ),
           );
         }
 
@@ -115,7 +143,8 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.how_to_vote, size: 80, color: AppColors.grey.withOpacity(0.5)),
+                Icon(Icons.how_to_vote,
+                    size: 80, color: AppColors.grey.withOpacity(0.5)),
                 const SizedBox(height: 16),
                 Text(
                   isActive ? 'No active voting' : 'No ended voting',
@@ -126,15 +155,28 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
           );
         }
 
+        // Convert and sort manually
         var votings = snapshot.data!.docs
-            .map((doc) => VotingModel.fromMap(doc.data() as Map<String, dynamic>))
+            .map((doc) {
+              try {
+                return VotingModel.fromMap(doc.data() as Map<String, dynamic>);
+              } catch (e) {
+                print('Error parsing voting: $e');
+                return null;
+              }
+            })
+            .whereType<VotingModel>()
             .toList();
+
+        // Sort manually by createdAt
+        votings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
         // Apply search filter
         if (_searchController.text.isNotEmpty) {
           votings = votings.where((voting) {
-            return voting.title.toLowerCase().contains(_searchController.text.toLowerCase()) ||
-                voting.award.toLowerCase().contains(_searchController.text.toLowerCase());
+            return voting.title
+                .toLowerCase()
+                .contains(_searchController.text.toLowerCase());
           }).toList();
         }
 
@@ -156,10 +198,15 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
   }
 
   Widget _buildVotingCard(VotingModel voting) {
-    final totalVotes = voting.contestants.fold<int>(0, (sum, c) => sum + c.votes);
+    final totalVotes = voting.totalVotes;
     final daysLeft = voting.endDate != null
         ? voting.endDate!.difference(DateTime.now()).inDays
         : null;
+
+    // Check if user can vote in this voting
+    bool userCanVote =
+        _currentUser != null && voting.canUserVote(_currentUser!);
+    Color accessColor = _getAccessColor(voting.accessType);
 
     return GestureDetector(
       onTap: () {
@@ -194,95 +241,172 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
                   Row(
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Text(
+                          voting.title,
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      // Access Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: accessColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              voting.title,
-                              style: GoogleFonts.poppins(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Icon(
+                              _getAccessIcon(voting.accessType),
+                              size: 12,
+                              color: accessColor,
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(width: 4),
                             Text(
-                              voting.award,
+                              _getAccessShortText(voting),
                               style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                color: AppColors.primaryPurple,
+                                fontSize: 10,
+                                color: accessColor,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Categories and Votes
+                  Row(
+                    children: [
+                      Icon(Icons.category, size: 14, color: AppColors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${voting.categories.length} categories',
+                        style: GoogleFonts.poppins(
+                            fontSize: 12, color: AppColors.grey),
+                      ),
+                      const SizedBox(width: 16),
+                      Icon(Icons.how_to_vote, size: 14, color: AppColors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$totalVotes votes',
+                        style: GoogleFonts.poppins(
+                            fontSize: 12, color: AppColors.grey),
+                      ),
+                    ],
+                  ),
+
+                  // Preview of first few categories
+                  if (voting.categories.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Categories: ${voting.categories.take(3).map((c) => c.name).join(' • ')}${voting.categories.length > 3 ? '...' : ''}',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: AppColors.primaryPurple,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+
+                  // End Date and Eligibility
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
                       if (voting.isActive && daysLeft != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: daysLeft > 3 
-                                ? AppColors.successGreen.withOpacity(0.1)
-                                : AppColors.errorRed.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            daysLeft > 0 ? '$daysLeft days left' : 'Ending soon',
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              color: daysLeft > 3 ? AppColors.successGreen : AppColors.errorRed,
-                              fontWeight: FontWeight.w600,
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 14,
+                              color: daysLeft > 3
+                                  ? AppColors.successGreen
+                                  : AppColors.errorRed,
                             ),
-                          ),
+                            const SizedBox(width: 4),
+                            Text(
+                              daysLeft > 0
+                                  ? '$daysLeft days left'
+                                  : 'Ending soon',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: daysLeft > 3
+                                    ? AppColors.successGreen
+                                    : AppColors.errorRed,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
+
+                      // Eligibility indicator
                       if (!voting.isActive)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
                             color: AppColors.grey.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             'Ended',
                             style: GoogleFonts.poppins(
-                              fontSize: 11,
+                              fontSize: 10,
                               color: AppColors.grey,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                        )
+                      else if (_currentUser != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: userCanVote
+                                ? AppColors.successGreen.withOpacity(0.1)
+                                : AppColors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                userCanVote ? Icons.check_circle : Icons.lock,
+                                size: 10,
+                                color: userCanVote
+                                    ? AppColors.successGreen
+                                    : AppColors.grey,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                userCanVote ? 'Eligible' : 'Not eligible',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 10,
+                                  color: userCanVote
+                                      ? AppColors.successGreen
+                                      : AppColors.grey,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Position: ${voting.position}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: AppColors.grey,
-                    ),
-                  ),
+
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(Icons.people, size: 16, color: AppColors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${voting.contestants.length} contestants',
-                        style: GoogleFonts.poppins(fontSize: 12, color: AppColors.grey),
-                      ),
-                      const SizedBox(width: 16),
-                      Icon(Icons.how_to_vote, size: 16, color: AppColors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$totalVotes total votes',
-                        style: GoogleFonts.poppins(fontSize: 12, color: AppColors.grey),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
                   Text(
                     'By ${voting.creatorName}',
                     style: GoogleFonts.poppins(
-                      fontSize: 11,
+                      fontSize: 10,
                       color: AppColors.grey,
                       fontStyle: FontStyle.italic,
                     ),
@@ -290,7 +414,10 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
                 ],
               ),
             ),
-            if (voting.contestants.isNotEmpty)
+
+            // Leading Contestant Preview
+            if (voting.categories.isNotEmpty &&
+                voting.categories.first.contestants.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -304,9 +431,9 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
                   children: [
                     Expanded(
                       child: Text(
-                        'Leading: ${voting.contestants.reduce((a, b) => a.votes > b.votes ? a : b).name}',
+                        'Leading: ${voting.categories.first.contestants.reduce((a, b) => a.votes > b.votes ? a : b).name}',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: AppColors.primaryPurple,
                         ),
@@ -314,7 +441,7 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
                     ),
                     const Icon(
                       Icons.arrow_forward,
-                      size: 16,
+                      size: 14,
                       color: AppColors.primaryPurple,
                     ),
                   ],
@@ -324,5 +451,38 @@ class _VotingScreenState extends State<VotingScreen> with SingleTickerProviderSt
         ),
       ),
     );
+  }
+
+  Color _getAccessColor(VotingAccess access) {
+    switch (access) {
+      case VotingAccess.general:
+        return AppColors.successGreen;
+      case VotingAccess.faculty:
+        return AppColors.primaryPurple;
+      case VotingAccess.department:
+        return Colors.orange;
+    }
+  }
+
+  IconData _getAccessIcon(VotingAccess access) {
+    switch (access) {
+      case VotingAccess.general:
+        return Icons.public;
+      case VotingAccess.faculty:
+        return Icons.school;
+      case VotingAccess.department:
+        return Icons.account_balance;
+    }
+  }
+
+  String _getAccessShortText(VotingModel voting) {
+    switch (voting.accessType) {
+      case VotingAccess.general:
+        return 'All';
+      case VotingAccess.faculty:
+        return voting.restrictedFaculty?.split(' ').last ?? 'Faculty';
+      case VotingAccess.department:
+        return voting.restrictedDepartment?.split(' ').first ?? 'Dept';
+    }
   }
 }

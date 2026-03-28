@@ -49,7 +49,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       },
                       itemBuilder: (context, index) {
                         return CachedNetworkImage(
-                          imageUrl: widget.product.imageUrls[index],
+                          imageUrl: 'https://api.allorigins.win/raw?url=${Uri.encodeComponent(widget.product.imageUrls[index])}',
                           fit: BoxFit.cover,
                         );
                       },

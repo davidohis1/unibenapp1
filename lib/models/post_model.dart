@@ -8,6 +8,8 @@ class PostModel {
   final String content;
   final List<String> mediaUrls;
   final List<String> mediaTypes; // 'image' or 'video'
+  final String? audioUrl;
+  final List<String> tags;
   final String backgroundColor;
   final bool isAnonymous;
   final DateTime createdAt;
@@ -16,6 +18,7 @@ class PostModel {
   final int shareCount;
   final bool isVideoReel;
   final String? videoThumbnail;
+  final double? videoDuration;
 
   PostModel({
     required this.id,
@@ -25,6 +28,8 @@ class PostModel {
     required this.content,
     this.mediaUrls = const [],
     this.mediaTypes = const [],
+    this.audioUrl,
+    this.tags = const [],
     this.backgroundColor = '#FFFFFF',
     this.isAnonymous = false,
     required this.createdAt,
@@ -33,6 +38,7 @@ class PostModel {
     this.shareCount = 0,
     this.isVideoReel = false,
     this.videoThumbnail,
+    this.videoDuration,
   });
 
   factory PostModel.fromMap(Map<String, dynamic> map) {
@@ -44,6 +50,8 @@ class PostModel {
       content: map['content'] ?? '',
       mediaUrls: List<String>.from(map['mediaUrls'] ?? []),
       mediaTypes: List<String>.from(map['mediaTypes'] ?? []),
+      audioUrl: map['audioUrl'],
+      tags: List<String>.from(map['tags'] ?? []),
       backgroundColor: map['backgroundColor'] ?? '#FFFFFF',
       isAnonymous: map['isAnonymous'] ?? false,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -52,6 +60,9 @@ class PostModel {
       shareCount: map['shareCount']?.toInt() ?? 0,
       isVideoReel: map['isVideoReel'] ?? false,
       videoThumbnail: map['videoThumbnail'],
+      videoDuration: map['videoDuration'] != null
+          ? double.parse(map['videoDuration'].toString())
+          : null,
     );
   }
 
@@ -64,6 +75,8 @@ class PostModel {
       'content': content,
       'mediaUrls': mediaUrls,
       'mediaTypes': mediaTypes,
+      'audioUrl': audioUrl,
+      'tags': tags,
       'backgroundColor': backgroundColor,
       'isAnonymous': isAnonymous,
       'createdAt': Timestamp.fromDate(createdAt),
@@ -72,12 +85,34 @@ class PostModel {
       'shareCount': shareCount,
       'isVideoReel': isVideoReel,
       'videoThumbnail': videoThumbnail,
+      'videoDuration': videoDuration,
     };
   }
 
   bool get hasMedia => mediaUrls.isNotEmpty;
   bool get hasImages => mediaTypes.contains('image');
   bool get hasVideos => mediaTypes.contains('video');
+  bool get hasAudio => audioUrl != null;
   int get likeCount => likes.length;
   bool isLikedBy(String userId) => likes.contains(userId);
+
+  // Helper to get first video URL
+  String? get firstVideoUrl {
+    for (int i = 0; i < mediaUrls.length; i++) {
+      if (mediaTypes[i] == 'video') {
+        return mediaUrls[i];
+      }
+    }
+    return null;
+  }
+
+  // Helper to get first image URL
+  String? get firstImageUrl {
+    for (int i = 0; i < mediaUrls.length; i++) {
+      if (mediaTypes[i] == 'image') {
+        return mediaUrls[i];
+      }
+    }
+    return null;
+  }
 }

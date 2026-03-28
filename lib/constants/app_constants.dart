@@ -34,4 +34,5 @@ class AppConstants {
   static const String postsCollection = 'posts';
   static const String messagesCollection = 'messages';
   static const String chatsCollection = 'chats';
+  static const String aiAssistant = 'AI Study Assistant';
 }

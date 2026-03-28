@@ -83,13 +83,18 @@ class AuthService {
   }
 
   // Update user data
-  Future<void> updateUserData(String uid, Map<String, dynamic> data) async {
-    try {
-      await _firestore.collection('users').doc(uid).update(data);
-    } catch (e) {
-      print('Error updating user data: $e');
-    }
+  // Add this method to AuthService class
+Future<void> updateUserData(UserModel updatedUser) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(updatedUser.uid)
+        .update(updatedUser.toMap());
+  } catch (e) {
+    print('Error updating user data: $e');
+    rethrow;
   }
+}
 
   // Handle auth exceptions
   String _handleAuthException(FirebaseAuthException e) {
@@ -117,4 +122,6 @@ class AuthService {
       throw _handleAuthException(e);
     }
   }
+
+
 }

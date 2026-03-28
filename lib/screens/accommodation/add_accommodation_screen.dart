@@ -9,6 +9,10 @@ import '../../constants/app_constants.dart';
 import '../../services/storage_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/accommodation_model.dart';
+import 'package:http/http.dart' as http; // Add this
+import 'dart:io' if (dart.library.html) 'dart:html' as html;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:cross_file/cross_file.dart'; // Add this for XFile
 
 class AddAccommodationScreen extends StatefulWidget {
   const AddAccommodationScreen({Key? key}) : super(key: key);
@@ -39,6 +43,7 @@ class _AddAccommodationScreenState extends State<AddAccommodationScreen> {
   bool _hasLight = false;
   List<String> _selectedFeatures = [];
   List<File> _selectedImages = [];
+  List<XFile> _selectedXImages = [];
   List<File> _selectedVideos = [];
   bool _isLoading = false;
 
@@ -74,26 +79,62 @@ class _AddAccommodationScreenState extends State<AddAccommodationScreen> {
   }
 
   Future<void> _pickImages() async {
-    final List<XFile> images = await _picker.pickMultiImage();
-    if (images.isNotEmpty) {
+  final List<XFile> images = await _picker.pickMultiImage(
+    imageQuality: 85,
+    maxWidth: 1920,
+  );
+  
+  if (images.isNotEmpty) {
+    if (kIsWeb) {
+      // For web - we need to handle differently
+      setState(() {
+        // On web, we store XFile references, not File objects
+        _selectedXImages.addAll(images);
+      });
+    } else {
+      // For mobile - convert to File
       setState(() {
         _selectedImages.addAll(images.map((img) => File(img.path)));
       });
     }
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${images.length} image(s) selected'),
+        backgroundColor: AppColors.successGreen,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
+}
 
   Future<void> _pickVideos() async {
-    final XFile? video = await _picker.pickVideo(source: ImageSource.gallery);
-    if (video != null) {
-      setState(() {
-        _selectedVideos.add(File(video.path));
-      });
-    }
+  final XFile? video = await _picker.pickVideo(
+    source: ImageSource.gallery,
+    maxDuration: const Duration(minutes: 5), // Limit video duration
+  );
+  
+  if (video != null) {
+    setState(() {
+      _selectedVideos.add(File(video.path));
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Video selected'),
+        backgroundColor: AppColors.successGreen,
+      ),
+    );
   }
+}
 
   void _removeImage(int index) {
     setState(() {
-      _selectedImages.removeAt(index);
+      if (kIsWeb) {
+        _selectedXImages.removeAt(index);
+      } else {
+        _selectedImages.removeAt(index);
+      }
     });
   }
 
@@ -116,7 +157,7 @@ class _AddAccommodationScreenState extends State<AddAccommodationScreen> {
   Future<void> _submitAccommodation() async {
     if (!_formKey.currentState!.validate()) return;
     
-    if (_selectedImages.isEmpty) {
+    if (kIsWeb ? _selectedXImages.isEmpty : _selectedImages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please add at least one image')),
       );
@@ -133,10 +174,39 @@ class _AddAccommodationScreenState extends State<AddAccommodationScreen> {
       if (userData == null) throw Exception('User data not found');
 
       // Upload images
-      List<String> imageUrls = await _storageService.uploadImages(
-        _selectedImages,
-        'accommodations',
-      );
+      // Upload images to Bunny.net
+// Upload images to Bunny.net
+      List<String> imageUrls;
+      try {
+        if (kIsWeb) {
+          // For web, use XFiles
+          imageUrls = await _storageService.uploadXFiles(
+            _selectedXImages,
+            'accommodations',
+          );
+        } else {
+          // For mobile, use Files
+          imageUrls = await _storageService.uploadImages(
+            _selectedImages,
+            'accommodations',
+          );
+        }
+        
+        if (imageUrls.isEmpty) {
+          throw Exception('Failed to upload images');
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Image upload failed: $e'),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
+        setState(() => _isLoading = false);
+        return;
+      }
 
       // Upload videos
       List<String> videoUrls = [];
@@ -385,50 +455,53 @@ class _AddAccommodationScreenState extends State<AddAccommodationScreen> {
           const SizedBox(height: 12),
 
           // Images
-          if (_selectedImages.isNotEmpty)
-            SizedBox(
-              height: 100,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _selectedImages.length,
-                itemBuilder: (context, index) {
-                  return Stack(
-                    children: [
-                      Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        width: 100,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          image: DecorationImage(
-                            image: FileImage(_selectedImages[index]),
-                            fit: BoxFit.cover,
-                          ),
+          // Images
+      if (kIsWeb ? _selectedXImages.isNotEmpty : _selectedImages.isNotEmpty)
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: kIsWeb ? _selectedXImages.length : _selectedImages.length,
+            itemBuilder: (context, index) {
+              return Stack(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    width: 100,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      image: DecorationImage(
+                        image: kIsWeb
+                            ? NetworkImage(_selectedXImages[index].path) as ImageProvider
+                            : FileImage(_selectedImages[index]),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 12,
+                    child: GestureDetector(
+                      onTap: () => _removeImage(index),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: AppColors.errorRed,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: AppColors.white,
                         ),
                       ),
-                      Positioned(
-                        top: 4,
-                        right: 12,
-                        child: GestureDetector(
-                          onTap: () => _removeImage(index),
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: AppColors.errorRed,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: AppColors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
 
           const SizedBox(height: 12),
 

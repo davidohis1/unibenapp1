@@ -5,6 +5,11 @@ import 'about_screen.dart';
 import 'help_screen.dart';
 import 'settings_screen.dart';
 import 'my_listing_screen.dart';
+import 'ai_study_assistant_screen.dart';
+import '../voting/voting_screen.dart'; 
+import '../accommodation/accommodation_screen.dart';
+import 'discussions_screen.dart';
+import 'academia/quiz_game_lobby_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({Key? key}) : super(key: key);
@@ -22,6 +27,18 @@ class MoreScreen extends StatelessWidget {
         children: [
           _buildMenuItem(
             context,
+            Icons.school,  // Academia icon
+            'Voting & Polls',
+            ' Vote on campus issues and events',
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const VotingScreen(),
+              ),
+            ),
+          ),
+          _buildMenuItem(
+            context,
             Icons.people_alt,
             'Find Roommates',
             'Connect with potential roommates',
@@ -33,14 +50,39 @@ class MoreScreen extends StatelessWidget {
           ),
           _buildMenuItem(
             context,
+            Icons.smart_toy, // Or Icons.robot, Icons.auto_awesome
+            'Find Accommodations',
+            'Search for available accommodations',
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const AccommodationScreen(),
+              ),
+            ),
+          ),
+          _buildMenuItem(
+            context,
             Icons.forum,
             'Discussions',
             'Join campus discussions',
-            () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Discussions feature coming soon!')),
-              );
-            },
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DiscussionsScreen(),
+              ),
+            ),
+          ),
+          _buildMenuItem(
+            context,
+            Icons.forum,
+            'Play and earn',
+            'Play quiz games and earn rewards',
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const QuizGameLobbyScreen(),
+              ),
+            ),
           ),
           _buildMenuItem(
             context,
