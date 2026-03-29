@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_native_timezone/flutter_native_timezone.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
 
@@ -48,8 +48,27 @@ class NotificationService {
   }
 
   Future<void> _setLocalTimeZone() async {
-    final String timeZoneName = await FlutterNativeTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(timeZoneName));
+    try {
+      // Get the timezone result from the native side
+      final dynamic timezoneResult = await FlutterTimezone.getLocalTimezone();
+      String timeZoneName;
+
+      if (timezoneResult is String) {
+        // If it's a direct string (older/different version behavior)
+        timeZoneName = timezoneResult;
+      } else {
+        // If it's a TimezoneInfo object, it likely uses .name 
+        // We use .toString() as a fallback to ensure we get a String
+        timeZoneName = timezoneResult.toString();
+      }
+
+      // Set the location in the timezone package
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (e) {
+      // Fallback to UTC if the lookup fails to prevent the app from crashing
+      debugPrint('Timezone error: $e. Falling back to UTC.');
+      tz.setLocalLocation(tz.getLocation('UTC'));
+    }
   }
 
   Future<void> scheduleReminder({
