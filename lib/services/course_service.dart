@@ -14,10 +14,10 @@ class CourseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   // Bunny.net Configuration
-  final String _storageZone = 'avidapp'; // Replace with your storage zone
-  final String _accessKey = '9c20f2f7-50a4-4526-8d2140f42b48-d46c-407e'; // Replace with your access key
-  final String _pullZoneUrl = 'https://avidapp1.b-cdn.net'; // Replace with your pull zone URL
-  final String _uploadUrl = 'https://jh.storage.bunnycdn.com'; // Bunny.net storage API URL
+  final String _storageZone = 'unibenmeet';
+  final String _accessKey = '8dc7a526-d5de-43cc-baac55789bab-2fae-46c8';
+  final String _pullZoneUrl = 'https://unibenmeet.b-cdn.net';
+  final String _uploadUrl = 'https://uk.storage.bunnycdn.com';
 
   // ============== COURSE MANAGEMENT ==============
 

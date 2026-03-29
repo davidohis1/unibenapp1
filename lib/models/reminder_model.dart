@@ -31,11 +31,14 @@ class Reminder {
       title: json['title'],
       description: json['description'],
       dateTime: DateTime.parse(json['dateTime']),
-      isDaily: json['isDaily'] ?? false,
-      isActive: json['isActive'] ?? true,
-      hasNotification: json['hasNotification'] ?? true,
-      lastTriggered: json['lastTriggered'] != null 
-          ? DateTime.parse(json['lastTriggered']) 
+      // FIX: SQLite stores booleans as integers (1/0).
+      // Using == 1 handles both int (from DB) and bool (from in-memory maps).
+      isDaily: json['isDaily'] == 1 || json['isDaily'] == true,
+      isActive: json['isActive'] == 1 || json['isActive'] == true,
+      hasNotification:
+          json['hasNotification'] == 1 || json['hasNotification'] == true,
+      lastTriggered: json['lastTriggered'] != null
+          ? DateTime.parse(json['lastTriggered'])
           : null,
       soundPath: json['soundPath'],
       notificationId: json['notificationId'],
@@ -48,9 +51,10 @@ class Reminder {
       'title': title,
       'description': description,
       'dateTime': dateTime.toIso8601String(),
-      'isDaily': isDaily,
-      'isActive': isActive,
-      'hasNotification': hasNotification,
+      // FIX: Explicitly store as int so SQLite WHERE isActive = 1 works correctly.
+      'isDaily': isDaily ? 1 : 0,
+      'isActive': isActive ? 1 : 0,
+      'hasNotification': hasNotification ? 1 : 0,
       'lastTriggered': lastTriggered?.toIso8601String(),
       'soundPath': soundPath,
       'notificationId': notificationId,

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../models/reminder_model.dart';
 import 'reminder_database.dart';
 import 'notification_service.dart';
@@ -10,54 +11,74 @@ class ReminderManager {
   final ReminderDatabase _database = ReminderDatabase();
   final NotificationService _notificationService = NotificationService();
 
+  // FIX: Return a Future so callers can await initialization before saving.
   Future<void> initialize() async {
     await _notificationService.initialize();
     await _rescheduleAllReminders();
   }
 
   Future<void> addReminder(Reminder reminder) async {
-    // Generate notification ID from reminder ID hash
     reminder.notificationId = reminder.id.hashCode.abs();
-    
     await _database.insertReminder(reminder);
-    
+
     if (reminder.isActive && reminder.hasNotification) {
-      await _scheduleReminderNotification(reminder);
+      // FIX: Wrap notification scheduling in try/catch so a permissions or
+      // plugin error doesn't prevent the reminder from being saved to the DB.
+      try {
+        await _scheduleReminderNotification(reminder);
+      } catch (e) {
+        // Reminder is persisted in DB; notification failure is non-fatal.
+        debugPrint('ReminderManager: Failed to schedule notification: $e');
+        rethrow; // Rethrow so the UI can show a warning if needed.
+      }
     }
   }
 
   Future<void> updateReminder(Reminder reminder) async {
-    // Cancel existing notification
     if (reminder.notificationId != null) {
-      await _notificationService.cancelReminder(reminder.notificationId!);
+      try {
+        await _notificationService.cancelReminder(reminder.notificationId!);
+      } catch (e) {
+        debugPrint('ReminderManager: Failed to cancel notification: $e');
+      }
     }
-    
-    // Update in database
+
     await _database.updateReminder(reminder);
-    
-    // Schedule new notification if active
+
     if (reminder.isActive && reminder.hasNotification) {
-      await _scheduleReminderNotification(reminder);
+      try {
+        await _scheduleReminderNotification(reminder);
+      } catch (e) {
+        debugPrint('ReminderManager: Failed to schedule notification: $e');
+      }
     }
   }
 
   Future<void> deleteReminder(String id) async {
     final reminder = await _database.getReminder(id);
     if (reminder != null && reminder.notificationId != null) {
-      await _notificationService.cancelReminder(reminder.notificationId!);
+      try {
+        await _notificationService.cancelReminder(reminder.notificationId!);
+      } catch (e) {
+        debugPrint('ReminderManager: Failed to cancel notification: $e');
+      }
     }
     await _database.deleteReminder(id);
   }
 
   Future<void> toggleReminder(String id, bool isActive) async {
     await _database.toggleReminder(id, isActive);
-    
+
     final reminder = await _database.getReminder(id);
     if (reminder != null) {
-      if (isActive && reminder.hasNotification) {
-        await _scheduleReminderNotification(reminder);
-      } else if (!isActive && reminder.notificationId != null) {
-        await _notificationService.cancelReminder(reminder.notificationId!);
+      try {
+        if (isActive && reminder.hasNotification) {
+          await _scheduleReminderNotification(reminder);
+        } else if (!isActive && reminder.notificationId != null) {
+          await _notificationService.cancelReminder(reminder.notificationId!);
+        }
+      } catch (e) {
+        debugPrint('ReminderManager: Failed to toggle notification: $e');
       }
     }
   }
@@ -74,18 +95,32 @@ class ReminderManager {
   }
 
   Future<void> _rescheduleAllReminders() async {
-    final reminders = await _database.getActiveReminders();
-    for (final reminder in reminders) {
-      if (reminder.hasNotification) {
-        await _scheduleReminderNotification(reminder);
+    try {
+      final reminders = await _database.getActiveReminders();
+      for (final reminder in reminders) {
+        if (reminder.hasNotification) {
+          try {
+            await _scheduleReminderNotification(reminder);
+          } catch (e) {
+            debugPrint(
+                'ReminderManager: Failed to reschedule ${reminder.id}: $e');
+          }
+        }
       }
+    } catch (e) {
+      debugPrint('ReminderManager: _rescheduleAllReminders failed: $e');
     }
+  }
+
+  // FIX: New method — returns ALL reminders (active + inactive, past + future).
+  // Use this for displaying on the reminders page so nothing is hidden.
+  Future<List<Reminder>> getAllReminders() async {
+    return await _database.getAllReminders();
   }
 
   Future<List<Reminder>> getUpcomingReminders() async {
     final reminders = await _database.getActiveReminders();
     final now = DateTime.now();
-    
     return reminders
         .where((reminder) => reminder.dateTime.isAfter(now))
         .toList();
@@ -94,7 +129,6 @@ class ReminderManager {
   Future<List<Reminder>> getPastReminders() async {
     final reminders = await _database.getActiveReminders();
     final now = DateTime.now();
-    
     return reminders
         .where((reminder) => reminder.dateTime.isBefore(now))
         .toList();

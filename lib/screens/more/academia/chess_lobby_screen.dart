@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,464 +20,437 @@ class ChessLobbyScreen extends StatefulWidget {
 class _ChessLobbyScreenState extends State<ChessLobbyScreen> {
   final ChessService _chessService = ChessService();
   final AuthService _authService = AuthService();
-  
+
   UserModel? _userData;
   bool _isFindingGame = false;
-  String? _currentGameId;
+  String? _waitingGameId;
+
+  // Stream subscription that watches our waiting game doc
+  StreamSubscription<DocumentSnapshot>? _gameSub;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    // Clean stale lobbies every time the screen is opened
+    _chessService.runPeriodicCleanup();
+  }
+
+  @override
+  void dispose() {
+    _gameSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final userData = await _authService.getUserData(user.uid);
-      setState(() {
-        _userData = userData;
-      });
+      if (mounted) setState(() => _userData = userData);
     }
   }
+
+  // ------------------------------------------------------------------
+  // Find / create game
+  // ------------------------------------------------------------------
 
   Future<void> _findGame() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _userData == null) return;
 
-    // Check if user has enough coins
     if (_userData!.walletBalance < 350) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Insufficient balance. You need 350 coins to play.',
-            style: GoogleFonts.poppins(),
-          ),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
-        ),
-      );
+      _showSnack('Insufficient balance. You need 350 coins to play.',
+          isError: true);
       return;
     }
 
-    setState(() => _isFindingGame = true);
+    if (mounted) setState(() => _isFindingGame = true);
 
     try {
-      // Listen for game creation/joining
-      _chessService.findOrCreateGame(
+      final game = await _chessService.findOrCreateGame(
         user.uid,
         _userData!.username,
         _userData!.profileImageUrl,
-      ).listen((game) {
-        if (game != null && mounted) {
-          setState(() {
-            _currentGameId = game.id;
-            _isFindingGame = false;
-          });
-
-          if (game.isActive) {
-            // Game started, navigate to game screen
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ChessGameScreen(
-                  gameId: game.id,
-                  userId: user.uid,
-                ),
-              ),
-            );
-          }
-        }
-      }, onError: (error) {
-        print('Error finding game: $error');
-        setState(() => _isFindingGame = false);
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error finding game: $error'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      });
-    } catch (e) {
-      setState(() => _isFindingGame = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
+
+      if (!mounted) return;
+
+      if (game.isActive) {
+        // Second player joined — go straight to game
+        _navigateToGame(game.id);
+        return;
+      }
+
+      // We are the creator — wait for opponent
+      setState(() => _waitingGameId = game.id);
+      _watchForOpponent(game.id);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isFindingGame = false);
+        _showSnack('Error: $e', isError: true);
+      }
     }
   }
 
-  Future<void> _leaveWaitingGame() async {
-    if (_currentGameId == null) return;
-    
+  /// Watches the game document; navigates when it flips to 'active'.
+  void _watchForOpponent(String gameId) {
+    _gameSub?.cancel();
+    _gameSub = FirebaseFirestore.instance
+        .collection('chess_games')
+        .doc(gameId)
+        .snapshots()
+        .listen((snap) {
+      if (!snap.exists) {
+        // Game was deleted (stale cleanup)
+        if (mounted) setState(() { _isFindingGame = false; _waitingGameId = null; });
+        return;
+      }
+
+      final game = ChessGameModel.fromMap(snap.data()!);
+      if (game.isActive && mounted) {
+        _gameSub?.cancel();
+        _navigateToGame(gameId);
+      }
+    });
+  }
+
+  void _navigateToGame(String gameId) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
-    try {
-      await _chessService.leaveWaitingGame(_currentGameId!, user.uid);
-      setState(() {
-        _currentGameId = null;
-        _isFindingGame = false;
-      });
-    } catch (e) {
-      print('Error leaving game: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(
-          'Chess Arena',
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: Color(0xFF1A1A1A),
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: StreamBuilder<List<ChessGameModel>>(
-        stream: user != null ? _chessService.getUserActiveGames(user.uid) : null,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: GoogleFonts.poppins(color: Colors.white),
-              ),
-            );
-          }
-
-          final activeGames = snapshot.data ?? [];
-
-          return Column(
-            children: [
-              // Balance Display
-              Container(
-                margin: EdgeInsets.all(16),
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.primaryPurple.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Your Balance',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '₦${_userData?.walletBalance.toStringAsFixed(0) ?? '0'}',
-                          style: GoogleFonts.poppins(
-                            color: AppColors.primaryPurple,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryPurple.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Entry Fee',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                          Text(
-                            '₦350',
-                            style: GoogleFonts.poppins(
-                              color: AppColors.primaryPurple,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Finding Game Status
-              if (_isFindingGame)
-                Container(
-                  margin: EdgeInsets.all(16),
-                  padding: EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF1A1A1A),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(
-                        color: AppColors.primaryPurple,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Finding opponent...',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Looking for another player to join',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      OutlinedButton(
-                        onPressed: _leaveWaitingGame,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: BorderSide(color: Colors.red),
-                        ),
-                        child: Text('Cancel'),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Active Games
-              if (activeGames.isNotEmpty && !_isFindingGame) ...[
-                Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Your Active Games',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: activeGames.length,
-                    itemBuilder: (context, index) {
-                      final game = activeGames[index];
-                      return _buildActiveGameCard(game, user!.uid);
-                    },
-                  ),
-                ),
-              ],
-
-              if (!_isFindingGame && activeGames.isEmpty)
-                Expanded(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.emoji_events,
-                          size: 80,
-                          color: AppColors.primaryPurple.withOpacity(0.5),
-                        ),
-                        SizedBox(height: 24),
-                        Text(
-                          'Ready to Play?',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(height: 12),
-                        Text(
-                          'Join a game and compete with other players',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Entry Fee: 350 coins | Winner gets 600 coins',
-                          style: GoogleFonts.poppins(
-                            color: AppColors.primaryPurple,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: 32),
-                        ElevatedButton(
-                          onPressed: _findGame,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryPurple,
-                            padding: EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                          ),
-                          child: Text(
-                            'Play Game',
-                            style: GoogleFonts.poppins(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
+    if (mounted) setState(() { _isFindingGame = false; _waitingGameId = null; });
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChessGameScreen(gameId: gameId, userId: user.uid),
       ),
     );
   }
 
-  Widget _buildActiveGameCard(ChessGameModel game, String userId) {
-    final opponentId = game.getOpponentId(userId);
-    final opponentName = opponentId != null ? game.playerNames[opponentId] : 'Waiting...';
-    final playerColor = game.getPlayerColor(userId);
-    final isMyTurn = game.isPlayerTurn(userId);
-    final timeLeft = game.getPlayerTimer(userId);
+  Future<void> _cancelSearch() async {
+    _gameSub?.cancel();
+    if (_waitingGameId != null) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _chessService.leaveWaitingGame(_waitingGameId!, user.uid);
+      }
+    }
+    if (mounted) setState(() { _isFindingGame = false; _waitingGameId = null; });
+  }
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChessGameScreen(
-              gameId: game.id,
-              userId: userId,
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: GoogleFonts.poppins()),
+      backgroundColor: isError ? Colors.red : Colors.green,
+      duration: const Duration(seconds: 3),
+    ));
+  }
+
+  // ------------------------------------------------------------------
+  // Build
+  // ------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text('Chess Arena',
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold, color: Colors.white)),
+        backgroundColor: const Color(0xFF1A1A1A),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Column(children: [
+        _buildBalanceCard(),
+        Expanded(
+          child: _isFindingGame ? _buildSearchingView() : _buildReadyView(),
+        ),
+      ]),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Widgets
+  // ------------------------------------------------------------------
+
+  Widget _buildBalanceCard() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primaryPurple.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Your Balance',
+                style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 4),
+            Text(
+              '₦${_userData?.walletBalance.toStringAsFixed(0) ?? '0'}',
+              style: GoogleFonts.poppins(
+                  color: AppColors.primaryPurple,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold),
             ),
+          ]),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primaryPurple.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(children: [
+              Text('Entry Fee',
+                  style:
+                      GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
+              Text('₦350',
+                  style: GoogleFonts.poppins(
+                      color: AppColors.primaryPurple,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadyView() {
+    final canPlay = (_userData?.walletBalance ?? 0) >= 350;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.emoji_events, size: 80, color: Color(0x7F9C27B0)),
+          const SizedBox(height: 24),
+          Text('Ready to Play?',
+              style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Text('Join a game and compete with other players',
+              style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text('Entry: 350 coins  |  Winner gets 600 coins',
+              style: GoogleFonts.poppins(
+                  color: AppColors.primaryPurple,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: canPlay ? _findGame : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    canPlay ? AppColors.primaryPurple : Colors.grey,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30)),
+              ),
+              child: Text(
+                canPlay ? 'Play Game' : 'Insufficient Coins',
+                style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white),
+              ),
+            ),
+          ),
+
+          // Open lobbies list
+          const SizedBox(height: 32),
+          _buildOpenLobbies(),
+        ]),
+      ),
+    );
+  }
+
+  /// Shown while we are the waiting creator.
+  Widget _buildSearchingView() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _waitingGameId == null
+          ? null
+          : FirebaseFirestore.instance
+              .collection('chess_games')
+              .doc(_waitingGameId)
+              .snapshots(),
+      builder: (context, snap) {
+        int playerCount = 1;
+        if (snap.hasData && snap.data!.exists) {
+          final data = snap.data!.data() as Map<String, dynamic>?;
+          final players = List<String>.from(data?['players'] ?? []);
+          playerCount = players.length;
+        }
+
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // 1/2 indicator
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1A1A),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: AppColors.primaryPurple.withOpacity(0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.people, color: Colors.white70, size: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      '$playerCount / 2',
+                      style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('players',
+                        style: GoogleFonts.poppins(
+                            color: Colors.white70, fontSize: 14)),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+              CircularProgressIndicator(color: AppColors.primaryPurple),
+              const SizedBox(height: 24),
+
+              Text('Waiting for opponent…',
+                  style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text('You will enter the game together when someone joins.',
+                  style: GoogleFonts.poppins(
+                      color: Colors.white70, fontSize: 13),
+                  textAlign: TextAlign.center),
+
+              const SizedBox(height: 32),
+              OutlinedButton.icon(
+                onPressed: _cancelSearch,
+                icon: const Icon(Icons.close, color: Colors.red),
+                label: Text('Cancel',
+                    style: GoogleFonts.poppins(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.red)),
+              ),
+            ],
           ),
         );
       },
-      child: Container(
-        margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: game.isActive 
-                ? AppColors.primaryPurple.withOpacity(0.5)
-                : Colors.grey.withOpacity(0.3),
-          ),
-        ),
-        child: Row(
+    );
+  }
+
+  /// Lists waiting (1-player) games from other users.
+  Widget _buildOpenLobbies() {
+    final user = FirebaseAuth.instance.currentUser;
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chess_games')
+          .where('status', isEqualTo: 'waiting')
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) return const SizedBox.shrink();
+
+        final lobbies = snap.data!.docs.where((doc) {
+          final players = List<String>.from(doc['players'] ?? []);
+          // Only show lobbies we didn't create and that have exactly 1 player
+          return players.length == 1 && !players.contains(user?.uid);
+        }).toList();
+
+        if (lobbies.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Player Color Indicator
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: playerColor == 'white' ? Colors.white : Colors.black,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.grey.withOpacity(0.5),
-                  width: 2,
+            Text('Open Lobbies',
+                style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            ...lobbies.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final names = Map<String, String>.from(data['playerNames'] ?? {});
+              final players = List<String>.from(data['players'] ?? []);
+              final creatorName =
+                  players.isNotEmpty ? (names[players[0]] ?? 'Player') : 'Player';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1A1A),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white12),
                 ),
-              ),
-              child: Center(
-                child: Icon(
-                  playerColor == 'white' ? Icons.emoji_events : Icons.star,
-                  color: playerColor == 'white' ? Colors.black : Colors.white,
-                  size: 20,
-                ),
-              ),
-            ),
-            SizedBox(width: 16),
-            
-            // Game Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    game.isWaiting ? 'Waiting for opponent...' : 'vs $opponentName',
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                child: Row(children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor:
+                        AppColors.primaryPurple.withOpacity(0.2),
+                    child: const Icon(Icons.person,
+                        color: Colors.white, size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(creatorName,
+                              style: GoogleFonts.poppins(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          Row(children: [
+                            Text('1 / 2 · ',
+                                style: GoogleFonts.poppins(
+                                    color: AppColors.primaryPurple,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold)),
+                            Text('Waiting for opponent…',
+                                style: GoogleFonts.poppins(
+                                    color: Colors.white54, fontSize: 11)),
+                          ]),
+                        ]),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
                     ),
+                    child: Text('OPEN',
+                        style: GoogleFonts.poppins(
+                            color: Colors.green,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold)),
                   ),
-                  SizedBox(height: 4),
-                  Row(
-                    children: [
-                      if (game.isActive) ...[
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: isMyTurn ? Colors.green : Colors.grey,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          isMyTurn ? 'Your turn' : 'Opponent\'s turn',
-                          style: GoogleFonts.poppins(
-                            color: isMyTurn ? Colors.green : Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                        SizedBox(width: 16),
-                        Icon(Icons.timer, size: 14, color: Colors.white70),
-                        SizedBox(width: 4),
-                        Text(
-                          '${(timeLeft / 60).floor()}:${(timeLeft % 60).toString().padLeft(2, '0')}',
-                          style: GoogleFonts.poppins(
-                            color: timeLeft < 60 ? Colors.red : Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            
-            // Arrow
-            Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.white70,
-              size: 16,
-            ),
+                ]),
+              );
+            }).toList(),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
