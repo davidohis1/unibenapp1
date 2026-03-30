@@ -47,8 +47,8 @@ flutter {
 }
 
 dependencies {
-    // 3. Add the Desugaring library here
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    // Updated to version 2.1.4 as requested by the error message
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
 }
