@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../models/user_model.dart';
+import '../../../../models/user_model.dart';
 
 class QuizQuestion {
   final String id;
@@ -74,7 +74,7 @@ class QuizGameService {
   static const int PRIZE_4P = 750;
   static const int QUESTIONS_PER_GAME = 15;
   static const int SECONDS_PER_QUESTION = 10;
-
+  String get currentUid => _auth.currentUser?.uid ?? '';
   // Calculate score for a single answer
   // Correct: (10 - secondsTaken) * 10  [max 100 if instant, min 10 if took 9s]
   // Wrong: -25

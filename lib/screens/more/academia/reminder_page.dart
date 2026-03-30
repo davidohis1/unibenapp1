@@ -20,8 +20,6 @@ class _ReminderPageState extends State<ReminderPage> {
   @override
   void initState() {
     super.initState();
-    // FIX: Initialize first, then load — ensures notifications are ready before
-    // any save attempt, preventing the save button from hanging.
     _reminderManager.initialize().then((_) => _loadReminders());
   }
 
@@ -29,8 +27,6 @@ class _ReminderPageState extends State<ReminderPage> {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
-    // FIX: Load ALL reminders (not just upcoming) so the list is never
-    // unexpectedly empty when reminders exist but are in the past.
     final reminders = await _reminderManager.getAllReminders();
 
     if (!mounted) return;
@@ -209,12 +205,8 @@ class _ReminderPageState extends State<ReminderPage> {
                   );
 
                   try {
-                    // FIX: Wrap in try/catch so a notification scheduling
-                    // failure doesn't silently block the save button forever.
                     await _reminderManager.addReminder(reminder);
                   } catch (e) {
-                    // Reminder is saved to DB even if notification scheduling
-                    // fails — show a gentle warning but don't block the user.
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
@@ -226,11 +218,7 @@ class _ReminderPageState extends State<ReminderPage> {
                     }
                   }
 
-                  // FIX: Check mounted before using context after async gap.
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                  }
-
+                  if (context.mounted) Navigator.pop(context);
                   await _loadReminders();
                 },
                 style: ElevatedButton.styleFrom(
@@ -338,7 +326,8 @@ class _ReminderPageState extends State<ReminderPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.notifications_none,
-                          size: 80, color: AppColors.grey.withOpacity(0.5)),
+                          size: 80,
+                          color: AppColors.grey.withOpacity(0.5)),
                       const SizedBox(height: 20),
                       Text(
                         'No Reminders Yet',
@@ -465,7 +454,9 @@ class _ReminderPageState extends State<ReminderPage> {
               timeLeftText,
               style: GoogleFonts.poppins(
                 fontSize: 10,
-                color: timeLeft.isNegative ? Colors.red : AppColors.primaryPurple,
+                color: timeLeft.isNegative
+                    ? Colors.red
+                    : AppColors.primaryPurple,
                 fontWeight: FontWeight.bold,
               ),
             ),

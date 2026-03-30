@@ -31,8 +31,6 @@ class Reminder {
       title: json['title'],
       description: json['description'],
       dateTime: DateTime.parse(json['dateTime']),
-      // FIX: SQLite stores booleans as integers (1/0).
-      // Using == 1 handles both int (from DB) and bool (from in-memory maps).
       isDaily: json['isDaily'] == 1 || json['isDaily'] == true,
       isActive: json['isActive'] == 1 || json['isActive'] == true,
       hasNotification:
@@ -51,7 +49,6 @@ class Reminder {
       'title': title,
       'description': description,
       'dateTime': dateTime.toIso8601String(),
-      // FIX: Explicitly store as int so SQLite WHERE isActive = 1 works correctly.
       'isDaily': isDaily ? 1 : 0,
       'isActive': isActive ? 1 : 0,
       'hasNotification': hasNotification ? 1 : 0,

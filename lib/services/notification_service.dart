@@ -1,9 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter_timezone/flutter_timezone.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'dart:typed_data';
 
 class NotificationService {
@@ -19,7 +18,6 @@ class NotificationService {
 
     _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
-    // Platform-specific initialization
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -37,38 +35,27 @@ class NotificationService {
     );
 
     await _notificationsPlugin.initialize(
-      initializationSettings,
+      settings: initializationSettings,
       onDidReceiveNotificationResponse: _onNotificationTap,
     );
 
-    // Set timezone
-    await _setLocalTimeZone();
+    tz_data.initializeTimeZones();
+    try {
+      const MethodChannel channel = MethodChannel('flutter_timezone');
+      final String? timeZoneName =
+          await channel.invokeMethod<String>('getLocalTimezone');
+      if (timeZoneName != null && timeZoneName.isNotEmpty) {
+        tz.setLocalLocation(tz.getLocation(timeZoneName));
+        debugPrint('Timezone set to: $timeZoneName');
+      } else {
+        tz.setLocalLocation(tz.UTC);
+      }
+    } catch (e) {
+      debugPrint('Timezone error: $e. Falling back to UTC.');
+      tz.setLocalLocation(tz.UTC);
+    }
 
     _initialized = true;
-  }
-
-  Future<void> _setLocalTimeZone() async {
-    try {
-      // Get the timezone result from the native side
-      final dynamic timezoneResult = await FlutterTimezone.getLocalTimezone();
-      String timeZoneName;
-
-      if (timezoneResult is String) {
-        // If it's a direct string (older/different version behavior)
-        timeZoneName = timezoneResult;
-      } else {
-        // If it's a TimezoneInfo object, it likely uses .name 
-        // We use .toString() as a fallback to ensure we get a String
-        timeZoneName = timezoneResult.toString();
-      }
-
-      // Set the location in the timezone package
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
-    } catch (e) {
-      // Fallback to UTC if the lookup fails to prevent the app from crashing
-      debugPrint('Timezone error: $e. Falling back to UTC.');
-      tz.setLocalLocation(tz.getLocation('UTC'));
-    }
   }
 
   Future<void> scheduleReminder({
@@ -81,33 +68,28 @@ class NotificationService {
   }) async {
     if (!_initialized) await initialize();
 
-    final tz.TZDateTime scheduledTime = tz.TZDateTime.from(
-      scheduledDate,
-      tz.local,
-    );
+    final tz.TZDateTime scheduledTime =
+        tz.TZDateTime.from(scheduledDate, tz.local);
 
     final AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
       'reminder_channel',
       'Study Reminders',
-      channelDescription: 'Notifications for study reminders and assignments',
+      channelDescription:
+          'Notifications for study reminders and assignments',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
       sound: RawResourceAndroidNotificationSound(sound),
       enableVibration: true,
-      vibrationPattern: Int64List.fromList([0, 500, 500, 500]), // FIXED: Use List<int>
-      autoCancel: true,
-      timeoutAfter: 60000,
-      colorized: true,
+      vibrationPattern: Int64List.fromList([0, 500, 500, 500]),
       color: const Color(0xFF6C63FF),
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      sound: 'default',
-      presentSound: true,
-      presentBadge: true,
       presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
     );
 
     final NotificationDetails platformDetails = NotificationDetails(
@@ -115,52 +97,33 @@ class NotificationService {
       iOS: iosDetails,
     );
 
-    if (daily) {
-      await _notificationsPlugin.zonedSchedule(
-        id,
-        title,
-        body,
-        _nextInstanceOfTime(scheduledDate.hour, scheduledDate.minute),
-        platformDetails,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        androidAllowWhileIdle: true,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
-    } else {
-      await _notificationsPlugin.zonedSchedule(
-        id,
-        title,
-        body,
-        scheduledTime,
-        platformDetails,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        androidAllowWhileIdle: true,
-      );
-    }
+    final tz.TZDateTime target = daily
+        ? _nextInstanceOfTime(scheduledDate.hour, scheduledDate.minute)
+        : scheduledTime;
+
+    await _notificationsPlugin.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: target,
+      notificationDetails: platformDetails,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: daily ? DateTimeComponents.time : null,
+    );
   }
 
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    tz.TZDateTime scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      hour,
-      minute,
-    );
-
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    tz.TZDateTime scheduled =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
     }
-
-    return scheduledDate;
+    return scheduled;
   }
 
   Future<void> cancelReminder(int id) async {
-    await _notificationsPlugin.cancel(id);
+    await _notificationsPlugin.cancel(id: id);
   }
 
   Future<void> cancelAllReminders() async {
@@ -168,9 +131,9 @@ class NotificationService {
   }
 
   Future<void> showInstantNotification({
+    required int id,
     required String title,
     required String body,
-    required String sound,
   }) async {
     if (!_initialized) await initialize();
 
@@ -178,33 +141,26 @@ class NotificationService {
         AndroidNotificationDetails(
       'instant_channel',
       'Instant Notifications',
-      channelDescription: 'Instant notifications',
       importance: Importance.max,
       priority: Priority.high,
-      playSound: true,
     );
 
-    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      sound: 'default',
-    );
-
-    final NotificationDetails platformDetails = NotificationDetails(
+    const NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
-      iOS: iosDetails,
+      iOS: DarwinNotificationDetails(),
     );
 
     await _notificationsPlugin.show(
-      0,
-      title,
-      body,
-      platformDetails,
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: platformDetails,
       payload: 'instant',
     );
   }
 
   void _onNotificationTap(NotificationResponse response) {
-    // Handle notification tap
-    print('Notification tapped: ${response.payload}');
+    debugPrint('Notification tapped: ${response.payload}');
   }
 
   Future<List<PendingNotificationRequest>> getPendingNotifications() async {

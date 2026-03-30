@@ -11,7 +11,6 @@ class ReminderManager {
   final ReminderDatabase _database = ReminderDatabase();
   final NotificationService _notificationService = NotificationService();
 
-  // FIX: Return a Future so callers can await initialization before saving.
   Future<void> initialize() async {
     await _notificationService.initialize();
     await _rescheduleAllReminders();
@@ -22,14 +21,11 @@ class ReminderManager {
     await _database.insertReminder(reminder);
 
     if (reminder.isActive && reminder.hasNotification) {
-      // FIX: Wrap notification scheduling in try/catch so a permissions or
-      // plugin error doesn't prevent the reminder from being saved to the DB.
       try {
         await _scheduleReminderNotification(reminder);
       } catch (e) {
-        // Reminder is persisted in DB; notification failure is non-fatal.
         debugPrint('ReminderManager: Failed to schedule notification: $e');
-        rethrow; // Rethrow so the UI can show a warning if needed.
+        rethrow;
       }
     }
   }
@@ -112,8 +108,6 @@ class ReminderManager {
     }
   }
 
-  // FIX: New method — returns ALL reminders (active + inactive, past + future).
-  // Use this for displaying on the reminders page so nothing is hidden.
   Future<List<Reminder>> getAllReminders() async {
     return await _database.getAllReminders();
   }

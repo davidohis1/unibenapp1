@@ -27,14 +27,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   final CourseService _courseService = CourseService();
   final AuthService _authService = AuthService();
   late TabController _tabController;
-  CourseModel? _updatedCourse; // Store updated course data
+  CourseModel? _updatedCourse;
   bool _isLoadingStats = false;
-  // Add these variables with your existing state variables
-  List<CourseMaterialModel> _cachedMaterials = [];
-  List<CourseReviewModel> _cachedReviews = [];
-  bool _isInitialMaterialLoad = true;
-  bool _isInitialReviewLoad = true;
-
+  
   Map<String, dynamic> _insights = {};
   bool _hasUserReviewed = false;
 
@@ -53,38 +48,38 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Future<void> _loadInsights() async {
-  setState(() => _isLoadingStats = true);
-  try {
-    final insights = await _courseService.getCourseInsights(widget.course.id);
-    final updatedCourse = await _courseService.getCourseById(widget.course.id);
-    if (mounted) {
-      setState(() {
-        _insights = insights;
-        _updatedCourse = updatedCourse;
-        _isLoadingStats = false;
-      });
+    setState(() => _isLoadingStats = true);
+    try {
+      final insights = await _courseService.getCourseInsights(widget.course.id);
+      final updatedCourse = await _courseService.getCourseById(widget.course.id);
+      if (mounted) {
+        setState(() {
+          _insights = insights;
+          _updatedCourse = updatedCourse;
+          _isLoadingStats = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingStats = false);
     }
-  } catch (e) {
-    if (mounted) setState(() => _isLoadingStats = false);
   }
-}
 
   Future<void> _checkUserReview() async {
-  final userId = _authService.currentUser?.uid;
-  if (userId == null) return;
-  
-  try {
-    final hasReviewed =
-        await _courseService.hasUserReviewedCourse(widget.course.id, userId);
-    if (mounted) {
-      setState(() {
-        _hasUserReviewed = hasReviewed;
-      });
+    final userId = _authService.currentUser?.uid;
+    if (userId == null) return;
+    
+    try {
+      final hasReviewed =
+          await _courseService.hasUserReviewedCourse(widget.course.id, userId);
+      if (mounted) {
+        setState(() {
+          _hasUserReviewed = hasReviewed;
+        });
+      }
+    } catch (e) {
+      print('Error checking review: $e');
     }
-  } catch (e) {
-    print('Error checking review: $e');
   }
-}
 
   Color _getDifficultyColor(double difficulty) {
     if (difficulty <= 1.5) return Colors.green;
@@ -95,113 +90,113 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildHeader() {
-  final course = _updatedCourse ?? widget.course;
-  
-  return Container(
-    padding: EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: Color(0xFF1A1A1A),
-      borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    course.code,
-                    style: GoogleFonts.poppins(
-                      color: AppColors.primaryPurple,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    course.title,
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (course.totalReviews > 0)
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _getDifficultyColor(course.averageDifficulty)
-                      .withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _getDifficultyColor(course.averageDifficulty),
-                    width: 2,
-                  ),
-                ),
-                child: _isLoadingStats
-                    ? SizedBox(
-                        width: 50,
-                        height: 50,
-                        child: CircularProgressIndicator(
-                          color: AppColors.primaryPurple,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Column(
-                        children: [
-                          Text(
-                            '${course.difficultyScore}',
-                            style: GoogleFonts.poppins(
-                              color: _getDifficultyColor(course.averageDifficulty),
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            '/100',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            course.difficultyLabel,
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+    final course = _updatedCourse ?? widget.course;
+    
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      course.code,
+                      style: GoogleFonts.poppins(
+                        color: AppColors.primaryPurple,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      course.title,
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-          ],
-        ),
-        SizedBox(height: 16),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildInfoChip(Icons.school, course.faculty),
-            _buildInfoChip(Icons.business, course.department),
-            _buildInfoChip(Icons.grade, 'Level ${course.level}'),
-            _buildInfoChip(
-                Icons.star, '${course.totalReviews} reviews'),
-            _buildInfoChip(
-                Icons.folder, '${course.materialCount} materials'),
-          ],
-        ),
-      ],
-    ),
-  );
-}
+              if (course.totalReviews > 0)
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _getDifficultyColor(course.averageDifficulty)
+                        .withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _getDifficultyColor(course.averageDifficulty),
+                      width: 2,
+                    ),
+                  ),
+                  child: _isLoadingStats
+                      ? SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: CircularProgressIndicator(
+                            color: AppColors.primaryPurple,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Column(
+                          children: [
+                            Text(
+                              '${course.difficultyScore}',
+                              style: GoogleFonts.poppins(
+                                color: _getDifficultyColor(course.averageDifficulty),
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '/100',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              course.difficultyLabel,
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+            ],
+          ),
+          SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildInfoChip(Icons.school, course.faculty),
+              _buildInfoChip(Icons.business, course.department),
+              _buildInfoChip(Icons.grade, 'Level ${course.level}'),
+              _buildInfoChip(
+                  Icons.star, '${course.totalReviews} reviews'),
+              _buildInfoChip(
+                  Icons.folder, '${course.materialCount} materials'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildInfoChip(IconData icon, String label) {
     return Container(
@@ -266,7 +261,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Exam Format
           if (examFormats.isNotEmpty) ...[
             _buildInsightSection(
               'Exam Format',
@@ -281,8 +275,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             ),
             SizedBox(height: 20),
           ],
-
-          // CA Type
           if (caTypes.isNotEmpty) ...[
             _buildInsightSection(
               'Continuous Assessment',
@@ -297,8 +289,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             ),
             SizedBox(height: 20),
           ],
-
-          // Lecturer Behaviors
           if (behaviors.isNotEmpty) ...[
             _buildInsightSection(
               'Lecturer Behavior',
@@ -440,28 +430,61 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   return StreamBuilder<List<CourseMaterialModel>>(
     stream: _courseService.getCourseMaterials(widget.course.id),
     builder: (context, snapshot) {
-      // Update cache when we have data
-      if (snapshot.hasData && snapshot.data != null) {
-        _cachedMaterials = snapshot.data!;
-        if (_isInitialMaterialLoad) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _isInitialMaterialLoad = false);
-          });
-        }
-      }
-
-      // Show loading only on first load
-      if (_isInitialMaterialLoad && _cachedMaterials.isEmpty) {
-        return Center(
+      // Show loading immediately while fetching
+      if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        return const Center(
           child: CircularProgressIndicator(color: AppColors.primaryPurple),
         );
       }
 
-      // Show cached data or error/empty states
-      if (_cachedMaterials.isEmpty) {
+      if (snapshot.hasError) {
+        print('Error loading materials: ${snapshot.error}'); // Debug print
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red.withOpacity(0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Error loading materials',
+                style: GoogleFonts.poppins(
+                  color: Colors.white70,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please check your connection and try again',
+                style: GoogleFonts.poppins(
+                  color: Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {}); // Refresh the widget
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryPurple,
+                ),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        );
+      }
+
+      final materials = snapshot.data ?? [];
+
+      if (materials.isEmpty) {
         return Center(
           child: Padding(
-            padding: EdgeInsets.all(40),
+            padding: const EdgeInsets.all(40),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -470,7 +493,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                   size: 80,
                   color: Colors.grey.withOpacity(0.5),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 Text(
                   'No materials yet',
                   style: GoogleFonts.poppins(
@@ -479,7 +502,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
                   'Be the first to upload!',
                   style: GoogleFonts.poppins(
@@ -494,10 +517,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       }
 
       return ListView.builder(
-        padding: EdgeInsets.all(16),
-        itemCount: _cachedMaterials.length,
+        padding: const EdgeInsets.all(16),
+        itemCount: materials.length,
         itemBuilder: (context, index) {
-          return _buildMaterialCard(_cachedMaterials[index]);
+          return _buildMaterialCard(materials[index]);
         },
       );
     },
@@ -595,6 +618,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     if (userId != null) {
                       await _courseService.toggleMaterialLike(
                           material.id, userId);
+                      // Refresh the stream
+                      setState(() {});
                     }
                   },
                   child: _buildMaterialStat(
@@ -661,91 +686,105 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildReviewsList() {
-  return Column(
-    children: [
-      // Insights section - outside StreamBuilder
-      if ((_updatedCourse ?? widget.course).totalReviews > 0)
-        Container(
-          margin: EdgeInsets.all(16),
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Color(0xFF1A1A1A),
-            borderRadius: BorderRadius.circular(12),
+    return Column(
+      children: [
+        // Insights section - outside StreamBuilder
+        if ((_updatedCourse ?? widget.course).totalReviews > 0)
+          Container(
+            margin: EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: _buildInsights(),
           ),
-          child: _buildInsights(),
-        ),
-      
-      // Reviews list
-      Expanded(
-        child: StreamBuilder<List<CourseReviewModel>>(
-          stream: _courseService.getCourseReviews(widget.course.id),
-          builder: (context, snapshot) {
-            // Update cache when we have data
-            if (snapshot.hasData && snapshot.data != null) {
-              _cachedReviews = snapshot.data!;
-              if (_isInitialReviewLoad) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _isInitialReviewLoad = false);
-                });
+        
+        // Reviews list
+        Expanded(
+          child: StreamBuilder<List<CourseReviewModel>>(
+            stream: _courseService.getCourseReviews(widget.course.id),
+            builder: (context, snapshot) {
+              // Show loading immediately while fetching
+              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                return Center(
+                  child: CircularProgressIndicator(color: AppColors.primaryPurple),
+                );
               }
-            }
 
-            // Show loading only on first load
-            if (_isInitialReviewLoad && _cachedReviews.isEmpty) {
-              return Center(
-                child: CircularProgressIndicator(color: AppColors.primaryPurple),
-              );
-            }
-
-            // Show cached data or empty state
-            if (_cachedReviews.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
+              if (snapshot.hasError) {
+                return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.rate_review_outlined,
-                        size: 80,
-                        color: Colors.grey.withOpacity(0.5),
+                        Icons.error_outline,
+                        size: 64,
+                        color: Colors.red.withOpacity(0.5),
                       ),
                       SizedBox(height: 16),
                       Text(
-                        'No reviews yet',
+                        'Error loading reviews',
                         style: GoogleFonts.poppins(
                           color: Colors.white70,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Share your experience!',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white54,
-                          fontSize: 14,
+                          fontSize: 16,
                         ),
                       ),
                     ],
                   ),
-                ),
-              );
-            }
+                );
+              }
 
-            return ListView.builder(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _cachedReviews.length,
-              itemBuilder: (context, index) {
-                return _buildReviewCard(_cachedReviews[index]);
-              },
-            );
-          },
+              final reviews = snapshot.data ?? [];
+
+              if (reviews.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.rate_review_outlined,
+                          size: 80,
+                          color: Colors.grey.withOpacity(0.5),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'No reviews yet',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white70,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Share your experience!',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white54,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                itemCount: reviews.length,
+                itemBuilder: (context, index) {
+                  return _buildReviewCard(reviews[index]);
+                },
+              );
+            },
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   Widget _buildReviewCard(CourseReviewModel review) {
     final userId = _authService.currentUser?.uid;
@@ -891,6 +930,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                   if (userId != null) {
                     await _courseService.toggleReviewHelpful(
                         review.id, userId);
+                    // Refresh the stream
+                    setState(() {});
                   }
                 },
                 child: Row(
@@ -989,7 +1030,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),
-            tabs: [
+            tabs: const [
               Tab(text: 'Materials'),
               Tab(text: 'Reviews'),
             ],
@@ -1006,88 +1047,91 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         ],
       ),
       floatingActionButton: Column(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    FloatingActionButton(
-      heroTag: 'add_review',
-      onPressed: _hasUserReviewed
-          ? null
-          : () async {
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: 'add_review',
+            onPressed: _hasUserReviewed
+                ? null
+                : () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            AddReviewScreen(course: widget.course),
+                      ),
+                    );
+                    await _loadInsights();
+                    await _checkUserReview();
+                    setState(() {}); // Refresh to update UI
+                  },
+            backgroundColor: _hasUserReviewed
+                ? Colors.grey
+                : AppColors.primaryPurple,
+            child: Icon(Icons.rate_review, color: Colors.white),
+          ),
+          SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'add_material',
+            onPressed: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) =>
-                      AddReviewScreen(course: widget.course),
+                      AddMaterialScreen(course: widget.course),
                 ),
               );
-              await _loadInsights(); // Refresh after adding
-              await _checkUserReview();
+              await _loadInsights();
+              setState(() {}); // Refresh to update UI
             },
-      backgroundColor: _hasUserReviewed
-          ? Colors.grey
-          : AppColors.primaryPurple,
-      child: Icon(Icons.rate_review, color: Colors.white),
-    ),
-    SizedBox(height: 12),
-    FloatingActionButton(
-      heroTag: 'add_material',
-      onPressed: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) =>
-                AddMaterialScreen(course: widget.course),
+            backgroundColor: AppColors.primaryPurple,
+            child: Icon(Icons.upload_file, color: Colors.white),
           ),
-        );
-        await _loadInsights(); // Refresh after adding
-      },
-      backgroundColor: AppColors.primaryPurple,
-      child: Icon(Icons.upload_file, color: Colors.white),
-    ),
-  ],
-),
+        ],
+      ),
     );
   }
+  
   String _examFormatToString(ExamFormat format) {
-  switch (format) {
-    case ExamFormat.mostlyTheory:
-      return 'mostlytheory';
-    case ExamFormat.mostlyCalculations:
-      return 'mostlycalculations';
-    case ExamFormat.repeatedPastQuestions:
-      return 'repeatedpastquestions';
-    default:
-      return 'mixed';
+    switch (format) {
+      case ExamFormat.mostlyTheory:
+        return 'mostlytheory';
+      case ExamFormat.mostlyCalculations:
+        return 'mostlycalculations';
+      case ExamFormat.repeatedPastQuestions:
+        return 'repeatedpastquestions';
+      default:
+        return 'mixed';
+    }
   }
-}
 
-String _caTypeToString(CAType type) {
-  switch (type) {
-    case CAType.assignment:
-      return 'assignment';
-    case CAType.test:
-      return 'test';
-    case CAType.presentation:
-      return 'presentation';
-    case CAType.project:
-      return 'project';
-    default:
-      return 'mixed';
+  String _caTypeToString(CAType type) {
+    switch (type) {
+      case CAType.assignment:
+        return 'assignment';
+      case CAType.test:
+        return 'test';
+      case CAType.presentation:
+        return 'presentation';
+      case CAType.project:
+        return 'project';
+      default:
+        return 'mixed';
+    }
   }
-}
 
-String _lecturerBehaviorToString(LecturerBehavior behavior) {
-  switch (behavior) {
-    case LecturerBehavior.strict:
-      return 'strict';
-    case LecturerBehavior.friendly:
-      return 'friendly';
-    case LecturerBehavior.readsSlides:
-      return 'readsslides';
-    case LecturerBehavior.interactive:
-      return 'interactive';
-    case LecturerBehavior.givesSurpriseTests:
-      return 'givessurprisetests';
+  String _lecturerBehaviorToString(LecturerBehavior behavior) {
+    switch (behavior) {
+      case LecturerBehavior.strict:
+        return 'strict';
+      case LecturerBehavior.friendly:
+        return 'friendly';
+      case LecturerBehavior.readsSlides:
+        return 'readsslides';
+      case LecturerBehavior.interactive:
+        return 'interactive';
+      case LecturerBehavior.givesSurpriseTests:
+        return 'givessurprisetests';
+    }
   }
-}
 }

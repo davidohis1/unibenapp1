@@ -11,14 +11,14 @@ dependencies:
     sdk: flutter
 
   # Updated Firebase for modern Flutter Web compatibility
-  firebase_core: ^3.15.2
-  firebase_auth: ^5.1.1
-  cloud_firestore: ^5.0.2
-  firebase_storage: ^12.1.0
+  firebase_core: ^4.6.0
+  firebase_auth: ^6.3.0
+  cloud_firestore: ^6.2.0
+  firebase_storage: ^13.2.0
 
   # UI (These versions are fine)
   cupertino_icons: ^1.0.2
-  google_fonts: ^6.1.0
+  google_fonts: ^8.0.2
   flutter_svg: ^2.0.9
   cached_network_image: ^3.3.0
   shimmer: ^3.0.0
@@ -27,22 +27,22 @@ dependencies:
   video_player: ^2.8.1
   url_launcher: ^6.2.2
   uuid: ^4.2.1
-  share_plus: ^7.2.1
-  intl: ^0.19.0
-  smooth_page_indicator: ^1.1.0
-  photo_view: ^0.14.0
+  share_plus: ^12.0.1
+  intl: ^0.20.2
+  smooth_page_indicator: ^2.0.1
+  photo_view: ^0.15.0
   google_generative_ai: ^0.4.0
   flutter_image_compress: ^2.1.0
-  file_picker: ^8.0.0
-  syncfusion_flutter_pdf: ^32.1.25  # For PDF text extraction
+  file_picker: ^10.3.10
+  syncfusion_flutter_pdf: ^33.1.45  # For PDF text extraction
   pdf: ^3.10.2
-  flutter_local_notifications: ^16.0.0
-  timezone: ^0.9.0
+  flutter_local_notifications: ^20.1.0
+  timezone: ^0.10.1
   shared_preferences: ^2.2.0
   sqflite: ^2.3.0
   path_provider: ^2.1.0
-  permission_handler: ^11.0.0
-  awesome_notifications: ^0.9.3+1 # For advanced notifications
+  permission_handler: ^12.0.1
+  path: ^1.9.0
   http: ^1.1.0
   http_parser: ^4.0.2
   chewie: ^1.7.0
@@ -50,9 +50,9 @@ dependencies:
   video_thumbnail: ^0.5.3
   universal_html: ^2.2.4
   webview_flutter: ^4.4.2
-  syncfusion_flutter_pdfviewer: ^32.1.25
-  firebase_ai: ^2.3.0
-  firebase_app_check: ^0.3.2+10
+  syncfusion_flutter_pdfviewer: ^33.1.45
+  firebase_ai: ^3.10.0
+  firebase_app_check: ^0.4.2
   chess: ^0.8.1 
   chess_vectors_flutter: ^1.1.0 
   flutter_timezone: ^5.0.2
@@ -60,8 +60,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
-  flutter_launcher_icons: ^0.13.1
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter_launcher_icons:
   android: "launcher_icon"
