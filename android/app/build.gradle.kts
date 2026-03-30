@@ -1,19 +1,19 @@
 plugins {
     id("com.android.application")
-    // Applies the Google Services plugin to connect to Firebase
     id("com.google.gms.google-services")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin plugins
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
-    // Ensure this matches your package name in the Firebase Console
-    namespace = "com.example.ludo1" 
+    namespace = "com.example.ludo1"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // 1. Enable Core Library Desugaring
+        isCoreLibraryDesugaringEnabled = true
+        
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -25,7 +25,9 @@ android {
     defaultConfig {
         applicationId = "com.example.ludo1"
         
-        // Setting these manually prevents conflicts and ensures Firebase compatibility
+        // 2. Enable MultiDex to handle the extra library methods
+        multiDexEnabled = true
+        
         minSdk = 21
         targetSdk = 33
         
@@ -35,7 +37,6 @@ android {
 
     buildTypes {
         release {
-            // Using debug keys for now so "flutter run --release" works without setup
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -46,6 +47,8 @@ flutter {
 }
 
 dependencies {
-    // Import the Firebase BoM (Bill of Materials) to manage versioning easily
+    // 3. Add the Desugaring library here
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
 }
